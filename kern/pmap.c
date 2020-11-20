@@ -269,8 +269,8 @@ x64_vm_init(void)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, UPAGES, page_size, PADDR(pages), PTE_U | PTE_P);
-	boot_map_region(pml4e, (uintptr_t) pages, PGSIZE, PADDR(pages),  PTE_P | PTE_W);
+	boot_map_region(pml4e, UPAGES, page_size, PADDR(pages), PTE_U);
+	boot_map_region(pml4e, (uintptr_t) pages, PGSIZE, PADDR(pages), PTE_W);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -284,7 +284,7 @@ x64_vm_init(void)
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, KSTACKTOP-KSTKSIZE, 16*PGSIZE, PADDR(bootstack),  PTE_P | PTE_W);
+	boot_map_region(pml4e, KSTACKTOP-KSTKSIZE, 16*PGSIZE, PADDR(bootstack), PTE_W);
 
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE. We have detected the number
@@ -294,7 +294,7 @@ x64_vm_init(void)
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, KERNBASE, npages * PGSIZE, (physaddr_t)0x0,  PTE_P | PTE_W);
+	boot_map_region(pml4e, KERNBASE, npages * PGSIZE, (physaddr_t)0x0, PTE_W);
 
 	// Check that the initial page directory has been set up correctly.
 	check_page_free_list(1);
