@@ -256,6 +256,10 @@ x64_vm_init(void)
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
 	// LAB 3: Your code here.
+
+	uint32_t env_size = ROUNDUP(sizeof(struct Env) * NENV, PGSIZE);
+	envs = boot_alloc(env_size);
+	env = envs;
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further
@@ -273,8 +277,7 @@ x64_vm_init(void)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, UPAGES, page_size, PADDR(pages), PTE_U);
-	boot_map_region(pml4e, (uintptr_t) pages, PGSIZE, PADDR(pages), PTE_W);
+	boot_map_region(boot_pml4e, UPAGES, page_size, PADDR(pages), PTE_U);
 
 	//////////////////////////////////////////////////////////////////////
 	// Map the 'envs' array read-only by the user at linear address UENVS
@@ -283,6 +286,8 @@ x64_vm_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
+
+	boot_map_region(boot_pml4e, UENVS, env_size, PADDR(env), PTE_U);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -296,7 +301,7 @@ x64_vm_init(void)
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, KSTACKTOP-KSTKSIZE, 16*PGSIZE, PADDR(bootstack), PTE_W);
+	boot_map_region(boot_pml4e, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);
 
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE. We have detected the number
@@ -306,7 +311,7 @@ x64_vm_init(void)
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
 
-	boot_map_region(pml4e, KERNBASE, npages * PGSIZE, (physaddr_t)0x0, PTE_W);
+	boot_map_region(boot_pml4e, KERNBASE, npages * PGSIZE, (physaddr_t)0x0, PTE_W);
 
 	// Check that the initial page directory has been set up correctly.
 	check_page_free_list(1);
@@ -490,13 +495,15 @@ pml4e_walk(pml4e_t *pml4e, const void *va, int create)
 	struct PageInfo *page = NULL;
 	pml4e_t *current_pml4e = &pml4e[PML4(va)];
 	
-	if(create && !*current_pml4e) {
+	if(!(*current_pml4e & PTE_P)) {
+		if (!create)
+			return NULL;
 		page = page_alloc(ALLOC_ZERO);
 		if (!page)
 			return NULL;
 
 		page->pp_ref++;
-		*current_pml4e = (pml4e_t) (page2pa(page) & ~0xFFF) | PTE_P | PTE_W | PTE_U;
+		*current_pml4e = (pml4e_t) page2pa(page) | PTE_P | PTE_W | PTE_U;
 	}
 
 	pdpe = (pdpe_t *) KADDR(PTE_ADDR(*current_pml4e));
@@ -504,8 +511,8 @@ pml4e_walk(pml4e_t *pml4e, const void *va, int create)
 	pte_t *pte = pdpe_walk(pdpe, va, create);
 
 	if (!pte && page) {
-		page_decref(page);
 		*current_pml4e = 0x0;
+		page_decref(page);
 	}
 
 	return pte;
@@ -521,12 +528,14 @@ pdpe_walk(pdpe_t *pdpe,const void *va,int create){
 	struct PageInfo *page = NULL;
 	pdpe_t *current_pdpe = &pdpe[PDPE(va)];
 	
-	if(create && !*current_pdpe) {
+	if(!(*current_pdpe & PTE_P)) {
+		if (!create)
+			return NULL;
 		page = page_alloc(ALLOC_ZERO);
 		if (!page)
 			return NULL;
 		page->pp_ref++;
-		*current_pdpe = (pdpe_t) (page2pa(page) & ~0xFFF) | PTE_P | PTE_W;
+		*current_pdpe = (pdpe_t) page2pa(page) | PTE_P | PTE_W | PTE_U;
 	}
 
 	pde = (pde_t *) KADDR(PTE_ADDR(*current_pdpe));
@@ -534,8 +543,8 @@ pdpe_walk(pdpe_t *pdpe,const void *va,int create){
 	pte_t *pte = pgdir_walk(pde, va, create);
 
 	if (!pte && page) {
-		page_decref(page);
 		*current_pdpe = 0x0;
+		page_decref(page);
 	}
 
 	return pte;
@@ -554,13 +563,16 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	pde_t *current_pde = &pgdir[PDX(va)];
 	pte_t *pte;
 	
-	if(create && !*current_pde) {
+	if (!(*current_pde & PTE_P)) {
+		if (!create)
+			return NULL;
+	
 		struct PageInfo *page = page_alloc(ALLOC_ZERO);
 		if (!page)
 			return NULL;
 
 		page->pp_ref++;
-		*current_pde = (pde_t) (page2pa(page) & ~0xFFF) | PTE_P | PTE_W;
+		*current_pde = (pde_t) page2pa(page) | PTE_P | PTE_W | PTE_U;
 	}
 
 	pte = (pte_t *) KADDR(PTE_ADDR(*current_pde));
@@ -628,7 +640,7 @@ page_insert(pml4e_t *pml4e, struct PageInfo *pp, void *va, int perm)
 		page_remove(pml4e, va);
 	
 	pp->pp_ref++;
-	*pte = (page2pa(pp) & ~0xFFF) | perm | PTE_P;
+	*pte = page2pa(pp) | perm | PTE_P;
 
 	return 0;
 }
