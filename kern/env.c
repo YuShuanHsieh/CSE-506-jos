@@ -198,7 +198,8 @@ env_setup_vm(struct Env *e)
 	e->env_pml4e = page2kva(p);
 	e->env_cr3 = page2pa(p);
 
-	e->env_pml4e[PML4(UTOP)] = boot_pml4e[PML4(UTOP)];
+	for (i = PML4(UTOP); i < NPMLENTRIES; i++)
+		e->env_pml4e[i] = boot_pml4e[i];
 	
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -518,7 +519,6 @@ env_pop_tf(struct Trapframe *tf)
 void
 env_run(struct Env *e)
 {
-	
 	// Step 1: If this is a context switch (a new environment is running):
 	//	   1. Set the current environment (if any) back to
 	//	      ENV_RUNNABLE if it is ENV_RUNNING (think about
@@ -535,11 +535,9 @@ env_run(struct Env *e)
 	//	e->env_tf.  Go back through the code you wrote above
 	//	and make sure you have set the relevant parts of
 	//	e->env_tf to sensible values.
-
-	// LAB 3: Your code here.
-	if (e->env_status != ENV_RUNNABLE)
+	if (e != curenv && e->env_status != ENV_RUNNABLE)
 		panic("the env could not run");	
-	
+
 	if (curenv && curenv->env_status == ENV_RUNNING)
 		curenv->env_status = ENV_RUNNABLE;
 

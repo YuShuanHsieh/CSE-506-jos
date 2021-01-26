@@ -267,7 +267,7 @@ int list_func_die(struct Ripdebuginfo *info, Dwarf_Die *die, uint64_t addr)
 // debuginfo_rip(addr, info)
 //
 //	Fill in the 'info' structure with information about the specified
-//	instruction address, 'addr'.  Returns 0 if information was found, and
+//	instruction address, 'addr'.  Returns	 0 if information was found, and
 //	negative if not.  But even if it returns negative it has stored some
 //	information into '*info'.
 //
@@ -304,9 +304,17 @@ debuginfo_rip(uintptr_t addr, struct Ripdebuginfo *info)
 	}
 	_dwarf_init(dbg, elf);
 
-	sect = _dwarf_find_section(".debug_info");	
+	sect = _dwarf_find_section(".debug_info");
 	dbg->dbg_info_offset_elf = (uint64_t)sect->ds_data; 
 	dbg->dbg_info_size = sect->ds_size;
+
+	const struct UserStabData *usd = (const struct UserStabData *) sect->ds_addr;
+	if(user_mem_check(curenv, usd, sizeof(struct UserStabData), PTE_U) < 0)
+		return -1;
+	if(user_mem_check(curenv, usd->stabs, usd->stab_end - usd->stabs, PTE_U) < 0)
+		return -1;
+	if(user_mem_check(curenv, usd->stabstr, usd->stabstr_end - usd->stabstr, PTE_U) < 0)
+		return -1;
 
 	assert(dbg->dbg_info_size);
 	while(_get_next_cu(dbg, &cu) == 0)
