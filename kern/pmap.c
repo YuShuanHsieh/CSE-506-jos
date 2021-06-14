@@ -230,7 +230,7 @@ boot_alloc(uint32_t n)
 // From UTOP to ULIM, the user is allowed to read but not write.
 // Above ULIM the user cannot read or write.
 void
-x64_vm_init(void)
+x64_vm_init	(void)
 {
 	pml4e_t* pml4e;
 	uint32_t cr0;
@@ -355,7 +355,14 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	int cpu_index;
+	uintptr_t top = KSTACKTOP;
+	for (cpu_index = 0; cpu_index < NCPU; ++cpu_index)
+	{
+		top -= KSTKSIZE;
+		boot_map_region(boot_pml4e, top, KSTKSIZE, PADDR(percpu_kstacks[cpu_index]), PTE_W);
+		top -= KSTKGAP;
+	}
 }
 
 // --------------------------------------------------------------
@@ -402,6 +409,7 @@ page_init(void)
 
 	uint64_t io_page = IOPHYSMEM / PGSIZE;
 	uint64_t free_page = PADDR(boot_alloc(0)) / PGSIZE;
+	uint64_t mpentry_page = MPENTRY_PADDR / PGSIZE;
 
 	pages[0].pp_ref = 1;
 	pages[0].pp_link = NULL;
@@ -410,7 +418,7 @@ page_init(void)
 
 		bool used = false;
 
-		if (i >= io_page && i < free_page)
+		if ((i >= io_page && i < free_page) || i == mpentry_page)
 			used = true;
 
 		uint64_t va = KERNBASE + i * PGSIZE;
@@ -760,7 +768,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// value will be preserved between calls to mmio_map_region
 	// (just like nextfree in boot_alloc).
 	static uintptr_t base = MMIOBASE;
-
+	uintptr_t result = base;
 	// Reserve size bytes of virtual memory starting at base and
 	// map physical pages [pa,pa+size) to virtual addresses
 	// [base,base+size).  Since this is device memory and not
@@ -779,7 +787,15 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	uint64_t ssize = ROUNDUP(size, PGSIZE);
+
+	if (base + ssize > MMIOLIM)
+		panic("mmio memory overflow");
+
+	boot_map_region(boot_pml4e, base, ssize, pa, PTE_PCD | PTE_PWT | PTE_W);
+	base += ssize;
+
+	return (void *)result;
 }
 
 static uintptr_t user_mem_check_addr;
